@@ -5,13 +5,22 @@
         <package android:name="com.milink.service" />
         <package android:name="com.android.systemui" />
     </queries>
-    <application android:label="通知流转扩展" android:description="@string/module_description"
+    <application android:label="平板跨设备通知扩展" android:description="@string/module_description"
         android:icon="@android:drawable/ic_dialog_info" android:allowBackup="false"
         android:supportsRtl="true">
+        <activity android:name=".ModuleSettingsActivity" android:exported="true"
+            android:theme="@style/Theme.NotificationRelay.Sheet"
+            android:excludeFromRecents="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="de.robv.android.xposed.category.MODULE_SETTINGS" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
         <activity android:name=".AppPickerActivity" android:exported="true"
             android:theme="@style/Theme.NotificationRelay.Sheet"
             android:windowSoftInputMode="adjustNothing" />
-        <provider android:name=".RelayAppProvider" android:authorities="com.maple.notificationrelay.apps"
+        <provider android:name=".RelayAppProvider" android:authorities="com.zephyr.notificationrelay.apps"
             android:exported="true" android:grantUriPermissions="false" />
         <meta-data android:name="xposedmodule" android:value="true" />
         <meta-data android:name="xposedminversion" android:value="101" />

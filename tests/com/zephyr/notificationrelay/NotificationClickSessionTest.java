@@ -1,4 +1,4 @@
-package com.maple.notificationrelay;
+package com.zephyr.notificationrelay;
 
 public final class NotificationClickSessionTest {
     public static void main(String[] args) throws Exception {

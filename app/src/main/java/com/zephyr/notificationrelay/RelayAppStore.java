@@ -1,4 +1,4 @@
-package com.maple.notificationrelay;
+package com.zephyr.notificationrelay;
 
 import android.content.Context;
 import android.database.Cursor;
@@ -17,7 +17,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 final class RelayAppStore {
-    static final String AUTHORITY = "com.maple.notificationrelay.apps";
+    static final String AUTHORITY = "com.zephyr.notificationrelay.apps";
     static final Uri URI = Uri.parse("content://" + AUTHORITY + "/apps");
 
     static final class App {

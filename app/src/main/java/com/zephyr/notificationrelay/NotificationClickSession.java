@@ -1,4 +1,4 @@
-package com.maple.notificationrelay;
+package com.zephyr.notificationrelay;
 
 /**
  * Correlates MiLink's two synchronous halves of one notification click.

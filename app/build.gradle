@@ -5,10 +5,10 @@ plugins {
 }
 
 android {
-    namespace 'com.maple.notificationrelay'
+    namespace 'com.zephyr.notificationrelay'
     compileSdk 37
     defaultConfig {
-        applicationId 'com.maple.notificationrelay'
+        applicationId 'com.zephyr.notificationrelay'
         minSdk 33
         targetSdk 36
         versionCode 16

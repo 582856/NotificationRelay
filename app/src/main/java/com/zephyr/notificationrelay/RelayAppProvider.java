@@ -1,4 +1,4 @@
-package com.maple.notificationrelay;
+package com.zephyr.notificationrelay;
 
 import android.content.ContentProvider;
 import android.content.ContentValues;
@@ -51,7 +51,7 @@ public final class RelayAppProvider extends ContentProvider {
 
     @Override public String getType(Uri uri) {
         checkReader();
-        return uri.getPath().startsWith("/icons/") ? "image/png" : "vnd.android.cursor.dir/vnd.maple.relayapp";
+        return uri.getPath().startsWith("/icons/") ? "image/png" : "vnd.android.cursor.dir/vnd.zephyr.relayapp";
     }
     @Override public Uri insert(Uri uri, ContentValues values) { throw new UnsupportedOperationException(); }
     @Override public int delete(Uri uri, String where, String[] args) {

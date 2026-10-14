@@ -1,4 +1,4 @@
-package com.maple.notificationrelay
+package com.zephyr.notificationrelay
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory

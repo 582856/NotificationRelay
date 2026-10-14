@@ -1,4 +1,4 @@
-package com.maple.notificationrelay;
+package com.zephyr.notificationrelay;
 
 import android.app.Application;
 import android.app.Activity;
@@ -23,6 +23,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.os.Parcelable;
 import android.os.SystemClock;
 import android.service.notification.StatusBarNotification;
 import android.util.Log;
@@ -282,8 +283,22 @@ public final class NotificationModule extends XposedModule {
             Class<?> activity = loader.loadClass("com.xiaomi.dist.notification.setting.SubscriptionAppActivity");
             Method enableMenu = method(activity, "setEndActionMenuEnabled", boolean.class);
             hook(method(activity, "onCreate", Bundle.class)).intercept(chain -> {
-                Object result = chain.proceed();
                 Activity target = (Activity) chain.getThisObject();
+                boolean shortcut = target.getIntent().getBooleanExtra("zephyr_open_app_list", false);
+                boolean ready = false;
+                if (shortcut) {
+                    try { ready = prepareModuleAppList(target, loader); }
+                    catch (Throwable e) { failure("module app list entry", e); }
+                }
+                Object result = chain.proceed();
+                if (shortcut && !ready) {
+                    try {
+                        target.startActivity(new Intent().setClassName(TARGET,
+                                "com.miui.circulate.world.ui.connectivitysettings.Notification.FeatureNotificationActivity"));
+                        target.finish();
+                    } catch (Throwable e) { failure("module settings fallback", e); }
+                    return result;
+                }
                 try {
                     Object device = target.getIntent().getParcelableExtra("device_info");
                     if (device != null && Integer.valueOf(1).equals(method(device.getClass(), "getDeviceType").invoke(device))) {
@@ -320,8 +335,8 @@ public final class NotificationModule extends XposedModule {
                         }
                         item.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
                         item.setOnMenuItemClickListener(clicked -> {
-                            Intent intent = new Intent().setClassName("com.maple.notificationrelay",
-                                    "com.maple.notificationrelay.AppPickerActivity");
+                            Intent intent = new Intent().setClassName("com.zephyr.notificationrelay",
+                                    "com.zephyr.notificationrelay.AppPickerActivity");
                             target.startActivity(intent);
                             return true;
                         });
@@ -331,6 +346,25 @@ public final class NotificationModule extends XposedModule {
             });
             Log.i(TAG, "add app menu hook installed");
         } catch (Throwable e) { failure("add app menu hook", e); }
+    }
+
+    private boolean prepareModuleAppList(Activity target, ClassLoader loader) throws Exception {
+        Class<?> manager = loader.loadClass("com.xiaomi.dist.notification.discover.NotificationTransDeviceManager");
+        Object instance = method(manager, "getInstance", Context.class).invoke(null, target);
+        Object selected = null;
+        for (Object device : (List<?>) method(manager, "getClientNotifiDevices").invoke(instance)) {
+            if (!Integer.valueOf(1).equals(method(device.getClass(), "getDeviceType").invoke(device))) continue;
+            // Multiple paired phones need the stock device chooser rather than an arbitrary selection.
+            if (selected != null) return false;
+            selected = device;
+        }
+        if (!(selected instanceof Parcelable device)) return false;
+        Class<?> sdk = loader.loadClass("com.xiaomi.mirror.synergy.MiuiSynergySdk");
+        Object synergy = method(sdk, "getInstance").invoke(null);
+        Object remote = method(sdk, "queryRemoteDevice", Context.class, String.class).invoke(synergy, target,
+                method(selected.getClass(), "getDeviceId").invoke(selected));
+        target.getIntent().putExtra("device_info", device).putExtra("device_online", remote != null);
+        return true;
     }
 
     private void installDeleteButton(ClassLoader loader, Class<?> fragment, Class<?> preference,
@@ -544,8 +578,8 @@ public final class NotificationModule extends XposedModule {
 
     private static Bitmap getXhsIcon(Context context) throws Exception {
         if (xhsIcon == null) {
-            Context module = context.createPackageContext("com.maple.notificationrelay", 0);
-            int id = module.getResources().getIdentifier("xhs_icon", "drawable", "com.maple.notificationrelay");
+            Context module = context.createPackageContext("com.zephyr.notificationrelay", 0);
+            int id = module.getResources().getIdentifier("xhs_icon", "drawable", "com.zephyr.notificationrelay");
             xhsIcon = BitmapFactory.decodeResource(module.getResources(), id);
             if (xhsIcon == null) throw new IllegalStateException("XHS icon unavailable");
         }
