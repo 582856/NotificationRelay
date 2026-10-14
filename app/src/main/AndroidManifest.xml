@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <queries>
+        <package android:name="com.milink.service" />
+        <package android:name="com.android.systemui" />
+    </queries>
+    <application android:label="通知流转扩展" android:description="@string/module_description"
+        android:icon="@android:drawable/ic_dialog_info" android:allowBackup="false"
+        android:supportsRtl="true">
+        <activity android:name=".AppPickerActivity" android:exported="true"
+            android:theme="@style/Theme.NotificationRelay.Sheet"
+            android:windowSoftInputMode="adjustNothing" />
+        <provider android:name=".RelayAppProvider" android:authorities="com.maple.notificationrelay.apps"
+            android:exported="true" android:grantUriPermissions="false" />
+        <meta-data android:name="xposedmodule" android:value="true" />
+        <meta-data android:name="xposedminversion" android:value="101" />
+        <meta-data android:name="xposeddescription" android:value="@string/module_description" />
+        <meta-data android:name="xposedscope" android:resource="@array/xposed_scope" />
+    </application>
+</manifest>

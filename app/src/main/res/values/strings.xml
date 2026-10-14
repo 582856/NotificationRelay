@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="module_description">打开小米平板原厂跨设备通知管理页，支持在线搜索并添加应用，缓存包名和图标用于通知订阅、弹窗及状态栏显示，点击镜像通知启动原厂手机应用串流，息屏暂停接收通知。作用域：米联、系统界面。</string>
+    <string-array name="xposed_scope"><item>com.milink.service</item><item>com.android.systemui</item></string-array>
+</resources>

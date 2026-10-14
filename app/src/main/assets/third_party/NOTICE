@@ -1,0 +1,17 @@
+NotificationRelay includes notification-click flow and session matching adapted from
+HyperConnect Toolkit.
+Copyright 2026 silverpoetry
+Source: https://github.com/silverpoetry/HyperConnectToolkit
+Commit: bbb80c8d5b6b601cccb32aeefbfe9db7bafc02f6
+License: Apache-2.0 (see Apache-2.0.txt)
+
+Modified for NotificationRelay: integrated into the existing modern Xposed entry,
+changed the Java package, inlined input validation and restricted diagnostics to
+fixed status text and exception class names.
+
+Upstream NOTICE:
+HyperConnect Toolkit
+Copyright 2026 silverpoetry
+
+This product includes software developed by third parties. See THIRD_PARTY_NOTICES.md for the
+corresponding attribution and license references.
