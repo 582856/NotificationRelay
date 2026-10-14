@@ -6,7 +6,7 @@
         <package android:name="com.android.systemui" />
     </queries>
     <application android:label="平板跨设备通知扩展" android:description="@string/module_description"
-        android:icon="@android:drawable/ic_dialog_info" android:allowBackup="false"
+        android:icon="@drawable/ic_module" android:allowBackup="false"
         android:supportsRtl="true">
         <activity android:name=".ModuleSettingsActivity" android:exported="true"
             android:theme="@style/Theme.NotificationRelay.Sheet"
