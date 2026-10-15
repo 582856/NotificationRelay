@@ -35,9 +35,11 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import io.github.libxposed.api.XposedModule;
@@ -55,6 +57,7 @@ public final class NotificationModule extends XposedModule {
     private volatile Map<String, RelayAppStore.App> apps = new LinkedHashMap<>();
     private final Map<Object, WeakReference<Object>> customFragments = new WeakHashMap<>();
     private final Map<Object, WeakReference<Object>> pendingDeletes = new WeakHashMap<>();
+    private final Map<String, String> statusBarSourceApps = Collections.synchronizedMap(new WeakHashMap<>());
     private String process;
 
     @Override public void onModuleLoaded(XposedModuleInterface.ModuleLoadedParam param) {
@@ -80,6 +83,8 @@ public final class NotificationModule extends XposedModule {
         ClassLoader loader = context.getClassLoader();
         if (SYSTEM_UI.equals(process)) {
             installStatusBarIconHook(context, loader);
+            installStatusBarAppGrouping(loader);
+            installGroupSummaryIconHook(loader);
             return;
         }
         if (!(TARGET + ":ui").equals(process)) watchAppCatalog(context);
@@ -490,6 +495,10 @@ public final class NotificationModule extends XposedModule {
                     Notification notification = sbn.getNotification();
                     if (descriptor != null && TARGET.equals(sbn.getOpPkg())
                             && "hyperOs_msg".equals(notification.extras.getString("hyperOs.category"))) {
+                        String sourceApp = notification.extras.getString("hyperOs.packageName");
+                        String key = sbn.getKey();
+                        if (sourceApp != null && !sourceApp.isBlank()) statusBarSourceApps.put(key, sourceApp);
+                        else statusBarSourceApps.remove(key);
                         Icon icon = notification.getLargeIcon();
                         if (icon == null) {
                             Bitmap bitmap = notification.extras.getParcelable("hyperOs.msgProfile", Bitmap.class);
@@ -502,12 +511,70 @@ public final class NotificationModule extends XposedModule {
                             iconField.set(descriptor, roundedStatusBarIcon(context, icon));
                             Log.i(TAG, "relay status bar icon applied");
                         }
-                    }
+                    } else statusBarSourceApps.remove(sbn.getKey());
                 } catch (Throwable e) { failure("status bar icon", e); }
                 return descriptor;
             });
             Log.i(TAG, "relay status bar icon hook installed");
         } catch (Throwable e) { failure("status bar icon hook", e); }
+    }
+
+    private void installStatusBarAppGrouping(ClassLoader loader) {
+        try {
+            Class<?> model = loader.loadClass("com.android.systemui.statusbar.notification.icon.domain.interactor.ActiveNotificationIconModel");
+            RelayStatusBarIcons grouping = new RelayStatusBarIcons(model);
+            Class<?> transform = loader.loadClass("com.android.systemui.statusbar.notification.icon.ui.viewmodel.NotificationIconContainerStatusBarViewModel$icons$1");
+            hook(method(transform, "invoke", Object.class, Object.class, Object.class)).intercept(chain -> {
+                Set<?> original = (Set<?>) chain.getArg(0);
+                Set<?> icons;
+                try { icons = grouping.withSourceApps(original, statusBarSourceApps); }
+                catch (Throwable e) {
+                    failure("status bar app grouping", e);
+                    return chain.proceed();
+                }
+                return icons == original ? chain.proceed()
+                        : chain.proceed(new Object[]{icons, chain.getArg(1), chain.getArg(2)});
+            });
+            Log.i(TAG, "relay status bar app grouping hook installed");
+        } catch (Throwable e) { failure("status bar app grouping hook", e); }
+    }
+
+    private void installGroupSummaryIconHook(ClassLoader loader) {
+        try {
+            Class<?> images = loader.loadClass("com.android.systemui.statusbar.notification.utils.NotifImageUtil");
+            Class<?> expanded = loader.loadClass("com.android.systemui.statusbar.notification.ExpandedNotification");
+            Method badge = method(loader.loadClass("miui.securityspace.XSpaceUserHandle"), "getXSpaceIcon",
+                    Context.class, Drawable.class, android.os.UserHandle.class);
+            hook(method(images, "applyAppIconAllowCustom", Context.class, expanded, ImageView.class, boolean.class))
+                    .intercept(chain -> {
+                Object result = chain.proceed();
+                try {
+                    StatusBarNotification sbn = (StatusBarNotification) chain.getArg(1);
+                    ImageView view = (ImageView) chain.getArg(2);
+                    if (sbn == null || view == null || !TARGET.equals(sbn.getOpPkg())) return result;
+                    Notification notification = sbn.getNotification();
+                    if ((notification.flags & Notification.FLAG_GROUP_SUMMARY) == 0
+                            || !"hyperOs_msg".equals(notification.extras.getString("hyperOs.category"))) return result;
+                    // The collapsed group header reloads its app icon separately from status-bar descriptors.
+                    Bitmap bitmap = notification.extras.getParcelable("hyperOs.msgProfile", Bitmap.class);
+                    Icon icon = bitmap != null && !bitmap.isRecycled()
+                            ? Icon.createWithBitmap(bitmap) : notification.getLargeIcon();
+                    if (icon != null) {
+                        Context context = (Context) chain.getArg(0);
+                        Drawable drawable = roundedStatusBarIcon(context, icon).loadDrawable(context);
+                        if (drawable != null) {
+                            if (Boolean.TRUE.equals(chain.getArg(3))) {
+                                drawable = (Drawable) badge.invoke(null, context, drawable, sbn.getUser());
+                            }
+                            view.setImageDrawable(drawable);
+                            Log.i(TAG, "relay group summary icon applied");
+                        }
+                    }
+                } catch (Throwable e) { failure("group summary icon", e); }
+                return result;
+            });
+            Log.i(TAG, "relay group summary icon hook installed");
+        } catch (Throwable e) { failure("group summary icon hook", e); }
     }
 
     private static Icon roundedStatusBarIcon(Context context, Icon icon) {
