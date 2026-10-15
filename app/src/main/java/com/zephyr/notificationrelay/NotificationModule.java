@@ -20,7 +20,6 @@ import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.Icon;
-import android.graphics.drawable.LayerDrawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -31,6 +30,7 @@ import android.os.SystemClock;
 import android.service.notification.StatusBarNotification;
 import android.util.Log;
 import android.view.View;
+import android.view.ViewOutlineProvider;
 import android.view.Gravity;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -602,8 +602,6 @@ public final class NotificationModule extends XposedModule {
             GradientDrawable background = new GradientDrawable();
             background.setColor(Color.WHITE);
             background.setCornerRadius(badgeSize * 0.22f);
-            LayerDrawable badge = new LayerDrawable(new Drawable[]{background, source});
-            badge.setLayerInset(1, padding, padding, padding, padding);
             // Group headers omit the source-icon view used by individual notification cards.
             if (sourceView == null) {
                 sourceView = new ImageView(context);
@@ -618,7 +616,11 @@ public final class NotificationModule extends XposedModule {
             parent.setClipChildren(false);
             parent.setClipToPadding(false);
             sourceView.setLayoutParams(params);
-            sourceView.setImageDrawable(badge);
+            sourceView.setBackground(background);
+            sourceView.setOutlineProvider(ViewOutlineProvider.BACKGROUND);
+            sourceView.setClipToOutline(true);
+            sourceView.setPadding(padding, padding, padding, padding);
+            sourceView.setImageDrawable(source);
             sourceView.setVisibility(View.VISIBLE);
         } catch (Throwable e) {
             failure("group source badge", e);
