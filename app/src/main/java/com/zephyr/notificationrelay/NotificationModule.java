@@ -35,6 +35,7 @@ import android.view.Gravity;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.widget.ImageView;
+import android.widget.FrameLayout;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.ref.WeakReference;
@@ -567,11 +568,11 @@ public final class NotificationModule extends XposedModule {
                         Context context = (Context) chain.getArg(0);
                         Drawable drawable = roundedStatusBarIcon(context, icon).loadDrawable(context);
                         if (drawable != null) {
-                            drawable = withRelaySourceBadge(context, drawable, notification.getSmallIcon());
                             if (Boolean.TRUE.equals(chain.getArg(3))) {
                                 drawable = (Drawable) badge.invoke(null, context, drawable, sbn.getUser());
                             }
                             view.setImageDrawable(drawable);
+                            applyRelaySourceBadge(context, view, notification.getSmallIcon());
                             Log.i(TAG, "relay group summary icon applied");
                         }
                     }
@@ -582,18 +583,21 @@ public final class NotificationModule extends XposedModule {
         } catch (Throwable e) { failure("group summary icon hook", e); }
     }
 
-    private static Drawable withRelaySourceBadge(Context context, Drawable appIcon, Icon sourceIcon) {
-        if (sourceIcon == null) return appIcon;
+    private static void applyRelaySourceBadge(Context context, ImageView appIcon, Icon sourceIcon) {
+        if (!(appIcon.getParent() instanceof FrameLayout parent)) return;
+        String tag = "zephyr_relay_source_badge";
+        ImageView sourceView = parent.findViewWithTag(tag);
+        if (sourceView != null) sourceView.setVisibility(View.GONE);
+        if (sourceIcon == null) return;
         try {
             Drawable source = sourceIcon.loadDrawable(context);
-            if (source == null) return appIcon;
-            int mainId = context.getResources().getIdentifier("notification_app_icon_size", "dimen", SYSTEM_UI);
-            int badgeId = context.getResources().getIdentifier("notification_app_im_icon_size", "dimen", SYSTEM_UI);
-            float ratio = mainId != 0 && badgeId != 0
-                    ? context.getResources().getDimension(badgeId) / context.getResources().getDimension(mainId)
-                    : 18f / 38f;
-            int size = Math.max(1, appIcon.getIntrinsicWidth());
-            int badgeSize = Math.max(1, Math.round(size * ratio));
+            if (source == null) return;
+            int size = systemUiDimension(context, "notification_app_icon_size", 38);
+            int badgeSize = systemUiDimension(context, "notification_app_im_icon_size", 18);
+            int start = systemUiDimension(context, "notification_app_im_icon_margin_start", 38)
+                    - systemUiDimension(context, "notification_app_icon_margin", 15);
+            int top = (size - badgeSize) / 2
+                    + systemUiDimension(context, "notification_app_im_icon_margin_top", 13);
             int padding = Math.max(1, Math.round(badgeSize * 0.08f));
             GradientDrawable background = new GradientDrawable();
             background.setColor(Color.WHITE);
@@ -601,14 +605,30 @@ public final class NotificationModule extends XposedModule {
             LayerDrawable badge = new LayerDrawable(new Drawable[]{background, source});
             badge.setLayerInset(1, padding, padding, padding, padding);
             // Group headers omit the source-icon view used by individual notification cards.
-            LayerDrawable combined = new LayerDrawable(new Drawable[]{appIcon, badge});
-            combined.setLayerSize(1, badgeSize, badgeSize);
-            combined.setLayerGravity(1, Gravity.BOTTOM | Gravity.RIGHT);
-            return combined;
+            if (sourceView == null) {
+                sourceView = new ImageView(context);
+                sourceView.setTag(tag);
+                sourceView.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+                parent.addView(sourceView, parent.indexOfChild(appIcon) + 1);
+            }
+            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(badgeSize, badgeSize,
+                    Gravity.BOTTOM | Gravity.END);
+            params.setMarginEnd(size - start - badgeSize);
+            params.bottomMargin = size - top - badgeSize;
+            parent.setClipChildren(false);
+            parent.setClipToPadding(false);
+            sourceView.setLayoutParams(params);
+            sourceView.setImageDrawable(badge);
+            sourceView.setVisibility(View.VISIBLE);
         } catch (Throwable e) {
             failure("group source badge", e);
-            return appIcon;
         }
+    }
+
+    private static int systemUiDimension(Context context, String name, int fallbackDp) {
+        int id = context.getResources().getIdentifier(name, "dimen", SYSTEM_UI);
+        return id != 0 ? context.getResources().getDimensionPixelSize(id)
+                : Math.round(fallbackDp * context.getResources().getDisplayMetrics().density);
     }
 
     private static Icon roundedStatusBarIcon(Context context, Icon icon) {
