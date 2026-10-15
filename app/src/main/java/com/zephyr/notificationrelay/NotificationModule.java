@@ -13,11 +13,14 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.BitmapShader;
 import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Shader;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.Icon;
+import android.graphics.drawable.LayerDrawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -28,6 +31,7 @@ import android.os.SystemClock;
 import android.service.notification.StatusBarNotification;
 import android.util.Log;
 import android.view.View;
+import android.view.Gravity;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.widget.ImageView;
@@ -563,6 +567,7 @@ public final class NotificationModule extends XposedModule {
                         Context context = (Context) chain.getArg(0);
                         Drawable drawable = roundedStatusBarIcon(context, icon).loadDrawable(context);
                         if (drawable != null) {
+                            drawable = withRelaySourceBadge(context, drawable, notification.getSmallIcon());
                             if (Boolean.TRUE.equals(chain.getArg(3))) {
                                 drawable = (Drawable) badge.invoke(null, context, drawable, sbn.getUser());
                             }
@@ -575,6 +580,35 @@ public final class NotificationModule extends XposedModule {
             });
             Log.i(TAG, "relay group summary icon hook installed");
         } catch (Throwable e) { failure("group summary icon hook", e); }
+    }
+
+    private static Drawable withRelaySourceBadge(Context context, Drawable appIcon, Icon sourceIcon) {
+        if (sourceIcon == null) return appIcon;
+        try {
+            Drawable source = sourceIcon.loadDrawable(context);
+            if (source == null) return appIcon;
+            int mainId = context.getResources().getIdentifier("notification_app_icon_size", "dimen", SYSTEM_UI);
+            int badgeId = context.getResources().getIdentifier("notification_app_im_icon_size", "dimen", SYSTEM_UI);
+            float ratio = mainId != 0 && badgeId != 0
+                    ? context.getResources().getDimension(badgeId) / context.getResources().getDimension(mainId)
+                    : 18f / 38f;
+            int size = Math.max(1, appIcon.getIntrinsicWidth());
+            int badgeSize = Math.max(1, Math.round(size * ratio));
+            int padding = Math.max(1, Math.round(badgeSize * 0.08f));
+            GradientDrawable background = new GradientDrawable();
+            background.setColor(Color.WHITE);
+            background.setCornerRadius(badgeSize * 0.22f);
+            LayerDrawable badge = new LayerDrawable(new Drawable[]{background, source});
+            badge.setLayerInset(1, padding, padding, padding, padding);
+            // Group headers omit the source-icon view used by individual notification cards.
+            LayerDrawable combined = new LayerDrawable(new Drawable[]{appIcon, badge});
+            combined.setLayerSize(1, badgeSize, badgeSize);
+            combined.setLayerGravity(1, Gravity.BOTTOM | Gravity.RIGHT);
+            return combined;
+        } catch (Throwable e) {
+            failure("group source badge", e);
+            return appIcon;
+        }
     }
 
     private static Icon roundedStatusBarIcon(Context context, Icon icon) {
