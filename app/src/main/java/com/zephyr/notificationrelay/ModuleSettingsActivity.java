@@ -9,6 +9,11 @@ import android.widget.Toast;
 public final class ModuleSettingsActivity extends Activity {
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
+        if (BuildConfig.RELAY_DIAGNOSTICS) {
+            startActivity(new Intent().setClassName(this, "com.zephyr.notificationrelay.DiagnosticsActivity"));
+            finish();
+            return;
+        }
         try {
             startActivity(new Intent("com.milink.service.notification.SUBSCRIPTION_APP")
                     .setPackage("com.milink.service")

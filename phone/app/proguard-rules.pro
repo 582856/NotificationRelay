@@ -1,0 +1,2 @@
+-keep class com.zephyr.relayquiet.QuietModule { *; }
+-keepattributes InnerClasses,EnclosingMethod

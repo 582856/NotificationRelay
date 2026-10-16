@@ -4,6 +4,7 @@
     <queries>
         <package android:name="com.milink.service" />
         <package android:name="com.android.systemui" />
+        <package android:name="com.xiaomi.barrage" />
     </queries>
     <application android:label="平板跨设备通知扩展" android:description="@string/module_description"
         android:icon="@drawable/ic_module" android:allowBackup="false"

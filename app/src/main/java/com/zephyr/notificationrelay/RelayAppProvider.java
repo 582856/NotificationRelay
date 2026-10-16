@@ -8,6 +8,7 @@ import android.net.Uri;
 import android.os.Binder;
 import android.os.ParcelFileDescriptor;
 import android.os.Process;
+import android.os.Bundle;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.util.List;
@@ -19,11 +20,25 @@ public final class RelayAppProvider extends ContentProvider {
         return true;
     }
 
+    @Override public Bundle call(String method, String arg, Bundle extras) {
+        if (!BuildConfig.RELAY_DIAGNOSTICS || !"appendDiagnostic".equals(method)) return super.call(method, arg, extras);
+        boolean allowed = Binder.getCallingUid() == Process.myUid();
+        String[] callers = getContext().getPackageManager().getPackagesForUid(Binder.getCallingUid());
+        if (callers != null) for (String name : callers)
+            if ("com.milink.service".equals(name) || "com.android.systemui".equals(name)
+                    || "com.miui.securitycenter".equals(name) || "com.xiaomi.barrage".equals(name)) allowed = true;
+        if (!allowed) throw new SecurityException("Only scoped hosts can write diagnostics");
+        try { RelayDiagnostics.append(getContext(), extras == null ? null : extras.getString("line")); }
+        catch (Exception error) { throw new IllegalStateException("Cannot store diagnostic", error); }
+        return Bundle.EMPTY;
+    }
+
     private void checkReader() {
         if (Binder.getCallingUid() == Process.myUid()) return;
         String[] packages = getContext().getPackageManager().getPackagesForUid(Binder.getCallingUid());
         if (packages != null) for (String name : packages)
-            if ("com.milink.service".equals(name) || "com.android.systemui".equals(name)) return;
+            if ("com.milink.service".equals(name) || "com.android.systemui".equals(name)
+                    || "com.xiaomi.barrage".equals(name)) return;
         throw new SecurityException("Catalog is available to relay processes only");
     }
 

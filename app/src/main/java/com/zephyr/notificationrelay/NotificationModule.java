@@ -53,6 +53,8 @@ import io.github.libxposed.api.XposedModuleInterface;
 public final class NotificationModule extends XposedModule {
     private static final String TARGET = "com.milink.service";
     private static final String SYSTEM_UI = "com.android.systemui";
+    private static final String SECURITY_CENTER = "com.miui.securitycenter";
+    private static final String BARRAGE = "com.xiaomi.barrage";
     private static final String XHS = "com.xingin.xhs";
     private static final String KEY = "check_box_pref_key_app_maple_xhs";
     private static final String TAG = "MapleNotifyModule";
@@ -67,25 +69,66 @@ public final class NotificationModule extends XposedModule {
 
     @Override public void onModuleLoaded(XposedModuleInterface.ModuleLoadedParam param) {
         process = param.getProcessName();
+        if (BuildConfig.RELAY_DIAGNOSTICS) {
+            RelayDiagnostics.framework(line -> log(Log.INFO, RelayDiagnostics.TAG, line));
+            String detail = "module_loaded process=" + process + " device=" + Build.DEVICE + " sdk=" + Build.VERSION.SDK_INT
+                    + " module=" + BuildConfig.VERSION_NAME;
+            RelayDiagnostics.note(detail);
+            try {
+                String framework = "framework=" + getFrameworkName() + " version=" + getFrameworkVersion()
+                        + " code=" + getFrameworkVersionCode() + " api=" + getApiVersion();
+                RelayDiagnostics.note(framework);
+            } catch (Throwable error) { RelayDiagnostics.error("framework information", error); }
+        }
     }
 
     @Override public void onPackageLoaded(XposedModuleInterface.PackageLoadedParam param) {
-        if (!"yingtian".equals(Build.DEVICE)) return;
+        RelayDiagnostics.note("package_loaded package=" + param.getPackageName() + " process=" + process);
+        if (!"yingtian".equals(Build.DEVICE)) {
+            RelayDiagnostics.note("skip reason=device_mismatch expected=yingtian actual=" + Build.DEVICE);
+            return;
+        }
         boolean milink = TARGET.equals(param.getPackageName()) && ("com.milink.crossdeviceservice".equals(process)
                 || (TARGET + ":ui").equals(process) || TARGET.equals(process));
         boolean systemUi = SYSTEM_UI.equals(param.getPackageName()) && SYSTEM_UI.equals(process);
-        if (!milink && !systemUi) return;
+        boolean barrage = BARRAGE.equals(param.getPackageName());
+        boolean securityCenter = SECURITY_CENTER.equals(param.getPackageName());
+        if (!milink && !systemUi && !barrage && !securityCenter) {
+            RelayDiagnostics.note("skip reason=package_or_process_mismatch");
+            return;
+        }
         try {
             hook(Application.class.getDeclaredMethod("attach", Context.class)).intercept(chain -> {
+                RelayDiagnostics.note("application_attach_enter process=" + process);
                 Object result = chain.proceed();
-                if (INSTALLED.compareAndSet(false, true)) install((Context) chain.getArg(0));
+                RelayDiagnostics.attach((Context) chain.getArg(0));
+                RelayDiagnostics.note("application_attach_complete process=" + process);
+                if (INSTALLED.compareAndSet(false, true)) {
+                    Context context = (Context) chain.getArg(0);
+                    if (TARGET.equals(context.getPackageName())) RelayDiagnostics.watchPages((Application) chain.getThisObject());
+                    install(context);
+                }
                 return result;
             });
+            RelayDiagnostics.note("application_attach_hook_installed process=" + process);
         } catch (Throwable e) { failure("attach", e); }
     }
 
     private void install(Context context) {
         ClassLoader loader = context.getClassLoader();
+        RelayDiagnostics.note("install_begin package=" + context.getPackageName() + " process=" + process
+                + " loader=" + loader.getClass().getName());
+        if (SECURITY_CENTER.equals(context.getPackageName())) {
+            installBarrageAppList(context, loader);
+            installHiddenSidebarLine(loader);
+            return;
+        }
+        if (BARRAGE.equals(context.getPackageName())) {
+            watchAppCatalog(context);
+            installBarrageReceiver(loader);
+            installBarragePresentation(context, loader);
+            return;
+        }
         if (SYSTEM_UI.equals(process)) {
             installStatusBarIconHook(context, loader);
             installStatusBarAppGrouping(loader);
@@ -98,12 +141,15 @@ public final class NotificationModule extends XposedModule {
             return;
         }
         if ((TARGET + ":ui").equals(process)) {
+            RelayDiagnostics.note("role=settings_ui");
             installSettingsEntry(loader);
             return;
         }
         installSubscriptionDiagnostics(loader);
         installNotificationClickHook(loader);
         installScreenOffFilter(context, loader);
+        try { new ScreenStatePublisher().install(this, context); }
+        catch (Throwable e) { failure("screen state publisher hook", e); }
         try {
             Class<?> fragment = loader.loadClass("com.xiaomi.dist.notification.setting.SubscriptionAppFragment");
             Class<?> preference = loader.loadClass("androidx.preference.Preference");
@@ -176,6 +222,164 @@ public final class NotificationModule extends XposedModule {
             installIconHooks(loader, controller);
             Log.i(TAG, "XHS receive hook installed");
         } catch (Throwable e) { failure("receive hook", e); }
+    }
+
+    private void installHiddenSidebarLine(ClassLoader loader) {
+        try {
+            Class<?> line = loader.loadClass("com.miui.dock.sidebar.f");
+            // Keep the sidebar window and its gesture listeners; hide only the handle drawable.
+            hook(method(line, "draw", Canvas.class)).intercept(chain -> null);
+            Log.i(TAG, "sidebar line drawing disabled");
+        } catch (Throwable e) { failure("sidebar line hook", e); }
+    }
+
+    private void installBarrageAppList(Context context, ClassLoader loader) {
+        try {
+            Class<?> repository = loader.loadClass("ga.a");
+            Class<?> model = loader.loadClass("com.miui.gamebooster.model.e");
+            Method packageName = method(model, "c");
+            Method preferences = method(loader.loadClass("g7.e"), "l", String.class, String.class);
+            java.lang.reflect.Constructor<?> constructor = model.getDeclaredConstructor(
+                    String.class, String.class, int.class, String.class, boolean.class);
+            constructor.setAccessible(true);
+            hook(method(repository, "f")).intercept(chain -> {
+                Object original = chain.proceed();
+                if (!(original instanceof List<?> list)) return original;
+                try {
+                    for (Object app : list) {
+                        if (TARGET.equals(packageName.invoke(app))) return original;
+                    }
+                    android.content.pm.ApplicationInfo info = context.getPackageManager()
+                            .getApplicationInfo(TARGET, 0);
+                    boolean enabled = true;
+                    String config = (String) preferences.invoke(null, "pref_barrage_apps_state", "[]");
+                    org.json.JSONArray saved = new org.json.JSONArray(
+                            config == null || config.isEmpty() ? "[]" : config);
+                    for (int i = 0; i < saved.length(); i++) {
+                        org.json.JSONObject app = saved.getJSONObject(i);
+                        if (TARGET.equals(app.optString("pkgName")) && info.uid == app.optInt("uid")) {
+                            enabled = app.optBoolean("state", true);
+                            break;
+                        }
+                    }
+                    List<Object> result = new ArrayList<>(list);
+                    // MiLink has no launcher entry, so adding it to the asset whitelist alone is insufficient.
+                    result.add(constructor.newInstance(TARGET,
+                            info.loadLabel(context.getPackageManager()).toString(), info.uid,
+                            "pkg_icon://" + TARGET, enabled));
+                    Log.i(TAG, "MiLink added to barrage application list");
+                    return result;
+                } catch (Throwable e) { failure("barrage application list", e); }
+                return original;
+            });
+            Log.i(TAG, "barrage application list hook installed");
+        } catch (Throwable e) { failure("barrage application list hook", e); }
+    }
+
+    private void installBarrageReceiver(ClassLoader loader) {
+        try {
+            Class<?> service = loader.loadClass("com.xiaomi.barrage.service.NotificationMonitorService");
+            Field packages = service.getDeclaredField("mBarragePackageList");
+            packages.setAccessible(true);
+            hook(method(service, "onCreate")).intercept(chain -> {
+                Object result = chain.proceed();
+                try {
+                    @SuppressWarnings("unchecked")
+                    List<String> supported = (List<String>) packages.get(null);
+                    if (!supported.contains(TARGET)) supported.add(TARGET);
+                    Log.i(TAG, "MiLink added to barrage receiver whitelist");
+                } catch (Throwable e) { failure("barrage receiver whitelist", e); }
+                return result;
+            });
+            Log.i(TAG, "barrage receiver hook installed");
+        } catch (Throwable e) { failure("barrage receiver hook", e); }
+    }
+
+    private void installBarragePresentation(Context context, ClassLoader loader) {
+        try {
+            Class<?> window = loader.loadClass("com.xiaomi.barrage.utils.BarrageWindowUtils");
+            Class<?> manager = loader.loadClass("com.xiaomi.barrage.manager.BarrageShowManager");
+            Class<?> model = loader.loadClass("com.xiaomi.barrage.danmu.model.BaseBarrage");
+            Method spannable = method(window, "createSpannable", Drawable.class, String.class);
+            Field text = model.getField("text");
+            Field message = model.getField("barrageMsg");
+            Field drawable = model.getField("barrageDrawable");
+            Field iconWidth = model.getField("paintIconwidth");
+            ThreadLocal<Object[]> current = new ThreadLocal<>();
+            hook(method(window, "addBarrageNotification", StatusBarNotification.class, boolean.class))
+                    .intercept(chain -> {
+                StatusBarNotification sbn = (StatusBarNotification) chain.getArg(0);
+                Object[] previous = current.get();
+                boolean relay = sbn != null && TARGET.equals(sbn.getOpPkg())
+                        && "hyperOs_msg".equals(sbn.getNotification().extras.getString("hyperOs.category"));
+                if (relay) current.set(new Object[]{chain.getThisObject(), sbn.getNotification()});
+                else current.remove();
+                try { return chain.proceed(); }
+                finally {
+                    if (previous == null) current.remove();
+                    else current.set(previous);
+                }
+            });
+            hook(method(manager, "addDanmu", model)).intercept(chain -> {
+                Object[] entry = current.get();
+                if (entry != null) {
+                    try {
+                        Notification notification = (Notification) entry[1];
+                        String source = notification.extras.getString("hyperOs.packageName");
+                        RelayAppStore.App app = apps.get(source);
+                        String label = app != null ? app.label : barrageAppLabel(context, source);
+                        Icon icon = app != null && app.icon != null && !app.icon.isRecycled()
+                                ? Icon.createWithBitmap(app.icon) : notification.getLargeIcon();
+                        if (icon == null) {
+                            Bitmap bitmap = notification.extras.getParcelable("hyperOs.msgProfile", Bitmap.class);
+                            if (bitmap != null && !bitmap.isRecycled()) icon = Icon.createWithBitmap(bitmap);
+                        }
+                        Drawable sourceIcon = null;
+                        if (icon != null) {
+                            try { sourceIcon = roundedStatusBarIcon(context, icon).loadDrawable(context); }
+                            catch (Throwable e) { failure("barrage source icon", e); }
+                        }
+                        String content = RelayBarrageText.format(notification.extras.getCharSequence(Notification.EXTRA_TITLE),
+                                notification.extras.getCharSequence(Notification.EXTRA_TEXT), label, sourceIcon != null);
+                        Object barrage = chain.getArg(0);
+                        CharSequence display;
+                        if (sourceIcon != null) {
+                            Drawable stockIcon = (Drawable) drawable.get(barrage);
+                            if (stockIcon != null) sourceIcon.setBounds(stockIcon.getBounds());
+                            display = (CharSequence) spannable.invoke(entry[0], sourceIcon, content);
+                        } else {
+                            // Stock reply/opacity paths expect a non-null drawable even for text-only barrages.
+                            sourceIcon = new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT);
+                            display = content;
+                            iconWidth.setFloat(barrage, 0f);
+                        }
+                        // Only the newly created barrage model changes; the shared notification remains intact.
+                        text.set(barrage, display);
+                        message.set(barrage, content);
+                        drawable.set(barrage, sourceIcon);
+                        Log.i(TAG, "relay barrage presentation applied");
+                    } catch (Throwable e) { failure("barrage presentation", e); }
+                }
+                return chain.proceed();
+            });
+            Log.i(TAG, "relay barrage presentation hooks installed");
+        } catch (Throwable e) { failure("barrage presentation hooks", e); }
+    }
+
+    private static String barrageAppLabel(Context context, String source) {
+        if (source == null || source.isBlank()) return "消息";
+        try {
+            return context.getPackageManager().getApplicationInfo(source, 0)
+                    .loadLabel(context.getPackageManager()).toString();
+        } catch (android.content.pm.PackageManager.NameNotFoundException ignored) { }
+        return switch (source) {
+            case "com.tencent.mm" -> "微信";
+            case "com.tencent.mobileqq" -> "QQ";
+            case "com.alibaba.android.rimet" -> "钉钉";
+            case "com.tencent.wework" -> "企业微信";
+            case "com.android.mms" -> "短信";
+            default -> source;
+        };
     }
 
     private void installScreenOffFilter(Context context, ClassLoader loader) {
@@ -741,20 +945,45 @@ public final class NotificationModule extends XposedModule {
 
     private void installSettingsEntry(ClassLoader loader) {
         try {
+            RelayDiagnostics.note("settings_entry_install_begin");
             Class<?> entry = loader.loadClass("com.miui.circulate.world.ui.connectivitysettings.i$b0");
+            RelayDiagnostics.note("entry_class_resolved=" + entry.getName());
             Class<?> helper = loader.loadClass("com.miui.circulate.world.ui.connectivitysettings.ConnectivityHelper");
-            hook(method(entry, "a")).intercept(chain -> {
+            RelayDiagnostics.note("helper_class_resolved=" + helper.getName());
+            Method click = method(entry, "a");
+            RelayDiagnostics.note("entry_method_resolved=i$b0.a()");
+            Method route = method(helper, "z", Context.class);
+            RelayDiagnostics.note("helper_method_resolved=ConnectivityHelper.z(Context)");
+            hook(click).intercept(chain -> {
+                RelayDiagnostics.note("notification_entry_click_begin");
                 Boolean previous = NOTIFICATION_ENTRY.get();
                 NOTIFICATION_ENTRY.set(true);
                 try { return chain.proceed(); }
                 finally {
+                    RelayDiagnostics.note("notification_entry_click_end");
                     if (previous == null) NOTIFICATION_ENTRY.remove();
                     else NOTIFICATION_ENTRY.set(previous);
                 }
             });
             // Change only this click's routing; other tablet checks retain stock results.
-            hook(method(helper, "z", Context.class)).intercept(chain ->
-                    Boolean.TRUE.equals(NOTIFICATION_ENTRY.get()) ? false : chain.proceed());
+            hook(route).intercept(chain -> {
+                if (Boolean.TRUE.equals(NOTIFICATION_ENTRY.get())) {
+                    RelayDiagnostics.note("notification_entry_tablet_branch_overridden result=false");
+                    return false;
+                }
+                return chain.proceed();
+            });
+            RelayDiagnostics.note("settings_entry_hooks_installed");
+            if (BuildConfig.RELAY_DIAGNOSTICS) {
+                try {
+                    Class<?> destination = loader.loadClass("com.miui.circulate.world.ui.connectivitysettings.Notification.FeatureNotificationActivity");
+                    hook(destination.getDeclaredMethod("onCreate", Bundle.class)).intercept(chain -> {
+                        RelayDiagnostics.note("target_notification_page_onCreate");
+                        return chain.proceed();
+                    });
+                    RelayDiagnostics.note("target_page_probe_installed");
+                } catch (Throwable error) { RelayDiagnostics.error("target page probe", error); }
+            }
             Log.i(TAG, "system notification settings entry redirected");
         } catch (Throwable e) { failure("settings entry", e); }
     }
@@ -851,5 +1080,6 @@ public final class NotificationModule extends XposedModule {
         // Keep message bodies and device identifiers out of module diagnostics.
         Throwable cause = error.getCause() == null ? error : error.getCause();
         Log.e(TAG, stage + " failed: " + cause.getClass().getSimpleName());
+        RelayDiagnostics.error(stage, error);
     }
 }

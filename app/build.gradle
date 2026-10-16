@@ -11,8 +11,9 @@ android {
         applicationId 'com.zephyr.notificationrelay'
         minSdk 33
         targetSdk 36
-        versionCode 20
-        versionName '0.1.19'
+        versionCode 26
+        versionName '0.1.25'
+        buildConfigField 'boolean', 'RELAY_DIAGNOSTICS', 'false'
     }
     signingConfigs {
         debug {
@@ -28,13 +29,20 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
-    buildFeatures { compose true }
+    buildFeatures { compose true; buildConfig true }
     buildTypes {
         release {
             minifyEnabled true
             shrinkResources true
             signingConfig signingConfigs.debug
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+        diagnostic {
+            initWith release
+            debuggable false
+            versionNameSuffix '-debug'
+            buildConfigField 'boolean', 'RELAY_DIAGNOSTICS', 'true'
+            matchingFallbacks = ['release']
         }
     }
 }

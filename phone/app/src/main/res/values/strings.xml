@@ -1,0 +1,7 @@
+<resources>
+    <string name="module_description">仅对已开启向平板流转的应用判断：通知成功发送到亮屏平板时，抑制手机对应通知的锁屏亮屏；最多等待200毫秒，超时沿用系统提醒。其他应用、声音、振动、来电和闹钟沿用系统设置。需平板跨设备通知扩展0.1.20或更高版本推送屏幕状态。\n作用域：米联、系统界面。由@枫彡开发</string>
+    <string-array name="xposed_scope">
+        <item>com.milink.service</item>
+        <item>com.android.systemui</item>
+    </string-array>
+</resources>
